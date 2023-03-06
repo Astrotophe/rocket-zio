@@ -1,6 +1,6 @@
 package fr.canal.rocket.zio
 
-import fr.canal.rocket.zio.api.ServerLive
+import fr.canal.rocket.zio.api.WorkflowServer
 import fr.canal.rocket.zio.configuration.*
 import fr.canal.rocket.zio.database.mongo.{DataSourceLive, MongoDatabaseInitializer}
 import fr.canal.rocket.zio.database.workflow.WorkflowRepositoryLive
@@ -16,28 +16,39 @@ import zio.http.*
  */
 object Main extends ZIOAppDefault:
 
- lazy val configurationLayers = ConfigurationLive.live
+  /**
+   * As you have an all-in-one "program",
+   * you need to specify the input type
+   * to be able to provide the config layers (Configuration, WorkflowServer)
+   * and use the dependency injection (Reader Monad ftw)
+   */
+  private val program: RIO[Configuration & WorkflowServer, Unit] =
+    for
+      _         <- ZIO.log("Workflow Status API")
+      api       <- Configuration.api
+      httpApp   <- WorkflowServer.httpRoutes
+      _         <- ZIO.log(s"API Documentation: http://localhost:${api.port}/docs")
+      config     = ServerConfig.default.port(api.port)
+      server    <- Server.serve(httpApp).provide(ServerConfig.live(config), Server.live)
+    yield ()
 
- lazy val dataSourceLayers = DataSourceLive.live
- lazy val reposLayers      = WorkflowRepositoryLive.live ++ MongoDatabaseInitializer.live
+  // As you are using ZIO 2
+  // you need to provide the layers using the ZIO#provide method
+  // no need to specify the composition hierarchy
+  // ZIO#provide will do it for you (thanks to the source project: https://github.com/kitlangton/zio-magic)
+  def run = program
+    .provide(
+      // configutation layers
+      Configuration.live,
+      WorkflowServer.live,
 
- // Vertical Composition: WorkflowService needs WorkflowRepo to be alive
- lazy val serviceLayers    =  reposLayers >>> WorkflowServiceLive.live
+      // service layers
+      WorkflowServiceLive.live,
 
- val program: ZIO[Any, Throwable, Unit] =
-  for
-   _         <- ZIO.log("Workflow Status API")
-   api       <- ConfigurationLive.api
-   httpApp   <- ServerLive.live()
-   toto       <- httpApp
-   start     <- Server.install()
-   _         <- ZIO.log(s"API Loaded Configuration: ${api.host}, ${api.port}")
-   _         <- ZIO.never
-  yield()
+      // datasource layers
+      DataSourceLive.live,
 
- def run = program
-   .provideLayer(
-     serviceLayers,
-     ZLayer.Debug.tree
-   )
-
+      // repos layers
+      WorkflowRepositoryLive.live,
+      // MongoDatabaseInitializer.live, // not needed yet, as no service nor layer is using it for now
+    )

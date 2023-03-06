@@ -29,7 +29,7 @@ trait Configuration:
   def api: Task[ApiConfig]
   def mongoDB: Task[MongoDBConfig]
 
-object ConfigurationLive:
+object Configuration:
 
   def api: RIO[Configuration, ApiConfig] = ZIO.serviceWithZIO(_.api)
   def mongoDB : RIO[Configuration, MongoDBConfig] = ZIO.serviceWithZIO(_.mongoDB)
